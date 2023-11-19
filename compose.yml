@@ -41,7 +41,7 @@ volumes:
 
 networks:
   default:
-    name: web
+    name: ${NETWORK}
     enable_ipv6: true
     ipam:
       config:
