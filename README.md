@@ -64,5 +64,5 @@ This software uses the following open source packages:
 
 ## License
 
-The MIT License (2023) - [JamBalaya56562](https://github.com/JamBalaya56562).
+The MIT License Copyright (c) 2023 - [JamBalaya56562](https://github.com/JamBalaya56562).
 Please have a look at the [LICENSE](https://github.com/JamBalaya56562/nginx-proxy/blob/main/LICENSE) for more details.
