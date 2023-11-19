@@ -7,6 +7,9 @@
   <a aria-label="nginx" href="https://nginx.org/">
     <img alt="" src="https://img.shields.io/badge/-nginx-009639.svg?logo=nginx&style=for-the-badge&labelColor=000000">
   </a>
+  <a aria-label="Let's Encrypt" href="https://letsencrypt.org/">
+    <img alt="" src="https://img.shields.io/badge/-letsencrypt-003A70.svg?logo=letsencrypt&style=for-the-badge&labelColor=000000">
+  </a>
   <a aria-label="License" href="https://github.com/JamBalaya56562/nginx-proxy/blob/main/LICENSE">
     <img alt="" src="https://img.shields.io/github/license/JamBalaya56562/nginx-proxy?style=for-the-badge&labelColor=000000">
   </a>
@@ -55,6 +58,7 @@ This software uses the following open source packages:
 
 - [Docker](https://www.docker.com/)
 - [Nginx](https://nginx.org/)
+- [Let's Encrypt](https://letsencrypt.org/)
 - [docker-gen](https://github.com/nginx-proxy/docker-gen)
 - [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy)
 - [acme-companion](https://github.com/nginx-proxy/acme-companion)
