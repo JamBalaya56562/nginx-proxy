@@ -27,7 +27,7 @@ $ git clone https://github.com/JamBalaya56562/nginx-proxy
 ```
 
 ### 2. Set variables in the `.env` file
-`DEFAULT_EMAIL` is used by Let's Encrypt in order to warn you about expiring certificates and allow you to recover your account.  
+`DEFAULT_EMAIL` is used by [Let's Encrypt](https://letsencrypt.org/) in order to warn you about expiring certificates and allow you to recover your account.  
 `NETWORK` is whatever you like.
 
 ```diff
