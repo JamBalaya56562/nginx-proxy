@@ -1,0 +1,48 @@
+services:
+
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    restart: always
+    environment:
+      TZ: Asia/Tokyo
+      ENABLE_IPV6: true
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - conf:/etc/nginx/conf.d
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./my_proxy.conf:/etc/nginx/conf.d/my_proxy.conf:ro
+
+  acme-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-proxy-acme
+    restart: always
+    environment:
+      DEFAULT_EMAIL: ${DEFAULT_EMAIL}
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - certs:/etc/nginx/certs:rw
+      - acme:/etc/acme.sh
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+volumes:
+  conf:
+  vhost:
+  html:
+  certs:
+    name: certs
+  acme:
+
+networks:
+  default:
+    name: web
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 2001:0DB8::/112
