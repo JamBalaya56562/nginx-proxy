@@ -39,9 +39,6 @@ $ git clone https://github.com/JamBalaya56562/nginx-proxy
 ```
 ### 3. Docker Compose
 ```bash
-# Create a new docker network which you set at NETWORK variable in the .env file
-$ docker network create nginx_web
-
 # Check if variables are appropriate
 $ docker compose convert
 
