@@ -2,16 +2,16 @@
 
 <p align="center">
   <a aria-label="docker" href="https://www.docker.com/">
-    <img alt="" src="https://img.shields.io/badge/-docker-2496ED.svg?logo=docker&style=for-the-badge&labelColor=000000">
+    <img src="https://img.shields.io/badge/-docker-2496ED.svg?logo=docker&style=for-the-badge&labelColor=000000" alt="docker">
   </a>
   <a aria-label="nginx" href="https://nginx.org/">
-    <img alt="" src="https://img.shields.io/badge/-nginx-009639.svg?logo=nginx&style=for-the-badge&labelColor=000000">
+    <img src="https://img.shields.io/badge/-nginx-009639.svg?logo=nginx&style=for-the-badge&labelColor=000000" alt="nginx">
   </a>
   <a aria-label="Let's Encrypt" href="https://letsencrypt.org/">
-    <img alt="" src="https://img.shields.io/badge/-letsencrypt-003A70.svg?logo=letsencrypt&style=for-the-badge&labelColor=000000">
+    <img src="https://img.shields.io/badge/-letsencrypt-003A70.svg?logo=letsencrypt&style=for-the-badge&labelColor=000000" alt="Let's Encrypt">
   </a>
   <a aria-label="License" href="https://github.com/JamBalaya56562/nginx-proxy/blob/main/LICENSE">
-    <img alt="" src="https://img.shields.io/github/license/JamBalaya56562/nginx-proxy?style=for-the-badge&labelColor=000000">
+    <img src="https://img.shields.io/github/license/JamBalaya56562/nginx-proxy?style=for-the-badge&labelColor=000000" alt="License">
   </a>
 </p>
 
@@ -22,7 +22,8 @@
 ## ⚒️ Usage
 
 ### 1. Clone
-To clone and run this application, you'll need [Git](https://git-scm.com) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed on your computer. From your command line:
+To clone and run this application, you'll need [Git](https://git-scm.com) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed on your computer.  
+From your command line:
 
 ```bash
 # Clone this repository
@@ -65,5 +66,5 @@ This software uses the following open source packages:
 
 ## 📄 License
 
-The MIT License Copyright (c) 2023 - [JamBalaya56562](https://github.com/JamBalaya56562).
+The MIT License Copyright (c) 2023 - [JamBalaya56562](https://github.com/JamBalaya56562).  
 Please have a look at the [LICENSE](https://github.com/JamBalaya56562/nginx-proxy/blob/main/LICENSE) for more details.
