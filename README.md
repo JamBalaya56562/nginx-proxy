@@ -19,7 +19,7 @@
   Set up a container running nginx and docker-gen with SSL certificates automatically:robot:
 </p>
 
-## ⚒️ Usage
+## 📄 Usage
 
 ### 1. Clone
 To clone and run this application, you'll need [Git](https://git-scm.com) and [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed on your computer.  
@@ -64,7 +64,7 @@ This software uses the following open source packages:
 - [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy)
 - [acme-companion](https://github.com/nginx-proxy/acme-companion)
 
-## 📄 License
+## ⚖️ License
 
 The MIT License Copyright (c) 2023 - [JamBalaya56562](https://github.com/JamBalaya56562).  
 Please have a look at the [LICENSE](https://github.com/JamBalaya56562/nginx-proxy/blob/main/LICENSE) for more details.
