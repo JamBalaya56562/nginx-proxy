@@ -407,6 +407,64 @@ def wait_for_nginxproxy_to_be_ready():
                 break
 
 
+def _reachable_vhosts(project_name: str, nginx_proxy: Container) -> set:
+    """Collect the VIRTUAL_HOST names that are expected to get a server block:
+    the non-regexp VIRTUAL_HOST values of this compose project's containers that
+    share a network with the nginx-proxy container (and are therefore reachable,
+    so docker-gen generates a vhost for them).
+    """
+    proxy_networks = set(nginx_proxy.attrs["NetworkSettings"]["Networks"].keys())
+    expected: set = set()
+    containers = docker_client.containers.list(
+        filters={"label": f"com.docker.compose.project={project_name}"}
+    )
+    for container in containers:
+        if container.id == nginx_proxy.id:
+            continue
+        networks = set(container.attrs["NetworkSettings"]["Networks"].keys())
+        if proxy_networks.isdisjoint(networks):
+            # nginx-proxy cannot reach this container, so no vhost is generated for it.
+            continue
+        for env in (container.attrs["Config"]["Env"] or []):
+            if not env.startswith("VIRTUAL_HOST="):
+                continue
+            for host in env[len("VIRTUAL_HOST="):].split(","):
+                host = host.strip()
+                if host and not host.startswith("~"):  # skip regexp vhosts
+                    expected.add(host)
+    return expected
+
+
+def wait_for_vhosts_in_conf(project_name: str, timeout: float = 30.0, interval: float = 0.2):
+    """Block until every reachable VIRTUAL_HOST of the project has a server block
+    in the generated nginx configuration.
+
+    This replaces a fixed post-startup sleep: tests would otherwise race
+    docker-gen's config (re)generation and reload, and intermittently get a 404
+    because the vhost was not in the config yet (most visibly on the slower
+    debian image). Waiting on the actual condition makes startup deterministic.
+    The timeout is only a safety net so an unexpectedly absent vhost can never
+    hang the suite.
+    """
+    nginx_proxy = RequestsForDocker.get_nginx_proxy_container()
+    expected = _reachable_vhosts(project_name, nginx_proxy)
+    if not expected:
+        return
+    deadline = time.monotonic() + timeout
+    missing = set(expected)
+    while time.monotonic() < deadline:
+        try:
+            conf = get_nginx_conf_from_container(nginx_proxy).decode("ascii", "ignore")
+        except Exception:
+            conf = ""
+        missing = {host for host in expected if f"server_name {host};" not in conf}
+        if not missing:
+            logging.debug(f"all expected vhosts present in nginx config: {sorted(expected)}")
+            return
+        time.sleep(interval)
+    logging.warning(f"timed out waiting for vhosts in nginx config: {sorted(missing)}")
+
+
 @pytest.fixture
 def docker_compose_files(request: FixtureRequest) -> List[str]:
     """Fixture returning the docker compose files to consider:
@@ -561,7 +619,9 @@ class DockerComposer(contextlib.AbstractContextManager):
             docker_compose_up(docker_compose_files, project_name)
             self._networks = connect_to_all_networks()
             wait_for_nginxproxy_to_be_ready()
-            time.sleep(3)  # give time to containers to be ready
+            # Wait on the actual condition (vhosts present in the generated config)
+            # instead of a fixed sleep, which races config generation on slower hosts.
+            wait_for_vhosts_in_conf(project_name)
 
         except KeyboardInterrupt:
             logging.warning("KeyboardInterrupt detected! Force cleanup...")
