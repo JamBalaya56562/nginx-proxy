@@ -1,0 +1,338 @@
+{
+  "results": [
+    {
+      "number": 139,
+      "title": "gzip_types has no effect without setting gzip and gzip_proxied",
+      "ask": "nginx.tmpl のデフォルト設定には `gzip_types ...` の行があるが `gzip on;`(および `gzip_proxied`)が無いため、この `gzip_types` は実質的に無効で誤解を招く、という指摘。スレッドでは論点が2つに整理された: (1) gzip をデフォルトで有効にすべきか(jwilder は元々 on のつもりだったと述べ、「バグ」としてopen維持を指示)、(2) 効いていない `gzip_types` を nginx.tmpl から削除すべきか。加えて、gzip 有効化方法を README に例として明記してほしいという要望(hk0i)も出ている。",
+      "verdict": "partially-resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:540",
+          "detail": "現行 v1.11.2 でも `gzip_types text/plain text/css application/javascript ...;` の行だけが存在し、`gzip on;` も `gzip_proxied` も無い。issue が指摘した『効かない・誤解を招く gzip_types』がそのまま残存している。"
+        },
+        {
+          "source": "Grep: gzip on (リポジトリ全体)",
+          "detail": "出荷される設定(nginx.tmpl / docker-entrypoint 系 / README / docs)に `gzip on` は一切存在しない(ヒットは research メモのみ)。よってデフォルトで gzip は有効化されていない。"
+        },
+        {
+          "source": "sl log -p nginx.tmpl",
+          "detail": "gzip 関連の履歴上の変更は『application/javascript を types に追加』と『gzip_types/access_log/error_log を http ブロックへ移動』のみ。`gzip on`/`gzip_proxied` は一度も追加されていない=コード上のバグは未修正。"
+        },
+        {
+          "source": "docs/README.md:920 (Proxy-wide)",
+          "detail": "任意の設定を `/etc/nginx/conf.d/*.conf` に置く汎用機構は文書化されており、スレッドで合意された回避策(h5bp compression.conf を置いて gzip on を有効化)はこの仕組みで動作する。"
+        },
+        {
+          "source": "Grep: gzip|compression (README.md, docs/README.md)",
+          "detail": "README/docs のどこにも『gzip』『compression』の語が無い。hk0i の『gzip を例として README に明記してほしい』という要望は未対応のまま。"
+        },
+        {
+          "source": "thread (md5, jwilder)",
+          "detail": "contributor md5 は『gzip_types は何もしておらず誤解を招くので削除すべき』と主張、collaborator jwilder は『元々 on のつもり、バグなのでopen維持』とコメント。どちらの方向の対応もコードに反映されていない。"
+        }
+      ],
+      "threadNote": "スレッド後半で polarathene と dm17 のやり取りにより『h5bp の compression.conf を conf.d に置き gzip on を自分で有効化する』という回避策が実証・標準化され、dm17 も『動いた』と報告している。ただしこれは回避策であって、jwilder が『バグ』とした本体(デフォルトで gzip が有効化されない/効かない gzip_types が残る)も、hk0i が求めた README への gzip 明記も、いずれも現行コード・docs で未実装。adrianrudnik は『アプリ側の判断なのでクローズでは』と述べるが、これはオリジナルの『gzip_types が誤解を招く』という指摘自体を解消するものではない。",
+      "draftComment": "",
+      "reasonNoComment": "verdict が partially-resolved であり、resolved / environment-obsolete のいずれでもないため下書きは作成しない。実際、現行 v1.11.2 の nginx.tmpl:540 には依然として効かない `gzip_types` 行だけが残り、`gzip on;`/`gzip_proxied` は無い。jwilder が『バグ』とした本体も、README への gzip 明記要望も未対応。標準化された回避策(conf.d に compression.conf を置く)は存在するが、それは『解決済み』を意味しない。ここで『解決済み』と公開コメントすると、未修正のテンプレ上のバグ/未対応の要望を誤って閉じさせる害があるため投稿しない。",
+      "recommendPost": false
+    },
+    {
+      "number": 88,
+      "title": "Doesn't work with docker machine",
+      "ask": "2015年当時、OP(srid)が Docker Machine で立てたホスト上で nginx-proxy が動かなかったという報告。原因は Docker Machine 側の daemon 設定で、`DOCKER_OPTS` が `tcp://0.0.0.0:2376`(かつ `--auth=identity`)だけを公開し、`/var/run/docker.sock` でリッスンしていなかったため、socket をマウントする nginx-proxy/docker-gen がデーモンに接続できなかった、というもの。要は「Docker Machine 環境で nginx-proxy をどう daemon に繋ぐか」が ask。",
+      "verdict": "environment-obsolete",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "thread comment (md5, contributor)",
+          "detail": "問題の原因は nginx-proxy ではなく Docker Machine 側にあると即座に切り分けられ、docker/machine PR #259 で修正済みと案内。回避策として `-e DOCKER_HOST=tcp://0.0.0.0:2376` か `DOCKER_OPTS` に `--host=unix:///var/run/docker.sock` を追加することを提示している。"
+        },
+        {
+          "source": "thread comment (md5 / ehazlett, Machine maintainer)",
+          "detail": "当時 TLS/DOCKER_HOST 経路の障害は Machine が identity 認証を使い、go-dockerclient が identity 非対応だった点。ehazlett が『Machine は標準の TLS 機構へ移行する』と明言しており、根本原因(identity 認証)は当時すでに解消方向だった。"
+        },
+        {
+          "source": "docs/README.md:1444-1448",
+          "detail": "現行 v1.11.2 では docker-gen が `DOCKER_HOST`(既定 `unix:///var/run/docker.sock`)、`DOCKER_TLS_VERIFY`、`DOCKER_CERT_PATH` を正式にサポートし、TLS 経由のリモートデーモン接続が一級機能としてドキュメント化されている。これは md5 が提案した `DOCKER_HOST=tcp://...` 回避策そのものに相当。"
+        },
+        {
+          "source": "docs/README.md:1286-1325 (Separate Containers / socket-proxy)",
+          "detail": "socket を公開コンテナに直接バインドしない構成として separate-containers / docker-socket-proxy パターンが現行ドキュメントに記載され、リモートデーモン構成の現代的な代替手段が整備されている。"
+        },
+        {
+          "source": "external: Docker Machine 自体が deprecated/archived(EOL)",
+          "detail": "本 issue の根本原因が存在した Docker Machine は現在は非推奨・アーカイブ済みで、Docker からも推奨されていない。当時の identity 認証問題を含め、現在のワークフローには無関係。"
+        }
+      ],
+      "threadNote": "スレッドでは contributor の md5 が「これは Docker Machine 側の問題」と切り分け、上流(docker/machine)の修正PRと具体的回避策を提示済み。Machine メンテナ ehazlett も TLS 移行を表明しており、当時時点で結論はほぼ出ている。nginx-proxy 側のコード修正を要する話ではなく、外部ツール(現在EOLのDocker Machine)の設定/認証方式に起因する問題。",
+      "draftComment": "Going through some long-open issues as a third party. This one looks like it has been overtaken by events. The root cause was in Docker Machine (the daemon only listening on `tcp://0.0.0.0:2376` with `--auth=identity` rather than on the Unix socket), and the thread itself identified it as a Machine-side problem with an upstream fix (docker/machine#259) and a `DOCKER_HOST` workaround. Docker Machine has since been deprecated/archived, and the `identity`-auth blocker mentioned here was already being replaced by standard TLS at the time.\n\nOn current nginx-proxy (v1.11.2), connecting to a remote/TLS daemon is a first-class, documented option via `DOCKER_HOST`, `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` (see the docker-gen environment variables in the docs), which covers exactly the `DOCKER_HOST=tcp://...` approach suggested above. There is also the separate-containers / docker-socket-proxy pattern for not exposing the socket directly.\n\nGiven that, this may be a candidate for closing if a maintainer agrees, though I'll leave that judgement to them. If anyone is still hitting this with a current setup, a fresh reproduction would be helpful.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 879,
+      "title": "Wrong dhparam.pem path when using nginx official",
+      "ask": "3コンテナ構成(公式nginx + docker-gen + letsencrypt companion、いわゆるseparate container setup)で、当時の nginx.tmpl が `ssl_dhparam /etc/nginx/dhparam/dhparam.pem;` を無条件にハードコードしていた。しかしこの構成ではそのパスにファイルが存在せず(companionは `/etc/nginx/certs/dhparam.pem` に作る)、結果として nginx が起動できない。OPは起動させるためにテンプレートのその行を手で書き換える必要があった。要望はこのパス不整合/起動失敗を解消すること。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:529-532",
+          "detail": "グローバルの dhparam ディレクティブが `{{- if (exists \"/etc/nginx/dhparam/dhparam.pem\") }}` で条件付きになった。ファイルが無ければ `ssl_dhparam` 行は出力されず、separate構成でもnginxは起動失敗しない。これがOPの根本原因(起動不能)を直接解消している。"
+        },
+        {
+          "source": "app/docker-entrypoint.sh:71-101",
+          "detail": "all-in-oneイメージでは `_setup_dhparam()` が起動時に同梱のRFC7919グループから `/etc/nginx/dhparam/dhparam.pem` を生成するため、既定でファイルが存在する。`DHPARAM_SKIP`/`DHPARAM_BITS` 環境変数で挙動を制御可能。"
+        },
+        {
+          "source": "docs/README.md:567-578 (Diffie-Hellman Groups)",
+          "detail": "separate container構成では事前生成鍵が無いことを明記し、A+を望む場合は `/etc/nginx/dhparam/dhparam.pem` にRFC7919鍵をマウントするよう案内。`DHPARAM_SKIP=true` で無効化も可能と文書化されている。"
+        },
+        {
+          "source": "nginx.tmpl:1071-1073 / docs/README.md:1527-1528",
+          "detail": "vhost単位のdhparamは `/etc/nginx/certs/<host>.dhparam.pem` で、グローバルは `/etc/nginx/dhparam/dhparam.pem` という役割分担が確立・文書化されている。"
+        },
+        {
+          "source": "release 1.11.2 (2026-06-18, latest)",
+          "detail": "ローカルクローンは現行main(1.11.2相当)で上記の挙動を備えている。"
+        }
+      ],
+      "threadNote": "スレッドは2017年で短く、メンテナ(jwilder/現nginx-proxy org)からの結論コメントは無いまま放置。jpic/shyd/returntrip が「companionの証明書ボリューム経由でdhparamを共有する必要がある」「テンプレを書き換えないとnginxが起動しない」と確認しているのみで、明示的な解決報告やクローズはされていない。OPの希望(テンプレが certs ボリューム側を読む)とは異なる形で解決された点に注意: パスは `/etc/nginx/dhparam/dhparam.pem` のまま据え置きだが、(1)存在チェックで起動失敗を防止、(2)separate構成での鍵配置をドキュメント化、という設計で症状(起動不能)は解消済み。",
+      "draftComment": "Hello, I'm a third party going through some older open issues to help with housekeeping, so please take this with a grain of salt.\n\nThe original failure here was that `nginx.tmpl` unconditionally emitted `ssl_dhparam /etc/nginx/dhparam/dhparam.pem;`, so in a separate-container setup (official nginx + docker-gen + acme-companion) the missing file prevented nginx from starting. On the current release (1.11.2) the template now guards that directive with `{{- if (exists \"/etc/nginx/dhparam/dhparam.pem\") }}` (nginx.tmpl, around line 529-532), so a missing global dhparam no longer breaks startup. The all-in-one image also generates this file by default via `_setup_dhparam()` in `app/docker-entrypoint.sh`, and the \"Diffie-Hellman Groups\" docs section now explicitly covers the separate-container case, recommending that you mount an RFC7919 key at `/etc/nginx/dhparam/dhparam.pem` (or set `DHPARAM_SKIP=true`). Note this resolves the startup failure with a different layout than originally proposed (the path stays under `/etc/nginx/dhparam/` rather than reading from the certs volume).\n\nIf you are able to confirm this on a current setup, maintainers might consider it a candidate for closing, though I'll leave that judgment to them.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 952,
+      "title": "iOS 11 devices can't connect to HTTPS using this image",
+      "ask": "2017年当時、iOS 11 にアップデートした端末が HTTPS サイトにアクセスできなくなった（ブラウザが落ちる/汎用エラー、デバッグすると HTTP/2 のプロトコルエラー）という報告。OP の本来の要望は2つ: (1) HTTP/2 を無効化する以外の「根本的な解決策」はないか、(2) 当面は HTTP/2 を無効化したいがテンプレートを手編集するしかなかったので、もっと簡単に無効化したい、という点。",
+      "verdict": "environment-obsolete",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "thread comment (matt-hh, contributor)",
+          "detail": "原因は早期 iOS 11 の HTTP/2 実装バグであり、Apple が iOS 11.0.1 で修正(HT208136 を引用)、11.0.3 では再現しないと報告。nginx-proxy 側の不具合ではなく外部要因(Apple のバグ)であることがスレッド内で確認されている。"
+        },
+        {
+          "source": "issue body (OP)",
+          "detail": "OP 自身が『回避策(HTTP/2 無効化)ではなく本当の解決策はないか』と述べており、根本原因がプロキシ側ではなくクライアント(iOS)側にあることを示唆。iOS 11 は現在すでに長期 EOL。"
+        },
+        {
+          "source": "nginx.tmpl:799",
+          "detail": "現行 v1.11.2 では vhost ごとにラベル com.github.nginx-proxy.nginx-proxy.http2.enable=false で HTTP/2 を無効化できる($http2_enabled の分岐)。テンプレ手編集は不要になった。"
+        },
+        {
+          "source": "nginx.tmpl:32",
+          "detail": "環境変数 ENABLE_HTTP2(既定 true)でグローバルに HTTP/2 を無効化可能。OP が当時テンプレ手編集で行っていた回避策が公式の設定項目として標準化されている。"
+        },
+        {
+          "source": "docs/README.md:818-822",
+          "detail": "『HTTP/2 support』節で、ENABLE_HTTP2 環境変数(グローバル)とコンテナラベル(個別)で HTTP/2 を無効化できることが正式にドキュメント化されている。"
+        },
+        {
+          "source": "test/test_http2/test_http2-global-disabled.py",
+          "detail": "ENABLE_HTTP2=false でグローバル無効化が機能することを検証する自動テストが存在し、機能が維持されていることを裏付ける。"
+        }
+      ],
+      "threadNote": "スレッド内で既に contributor が「原因は iOS 11 側のバグで Apple が 11.0.1 で修正済み」と結論付けている。fboleto が 11.0.3 でも再現と報告しているが、これは追加報告で nginx-proxy 側の修正には至らず、issue はその後放置(2017年以降コメントなし)。実質的に外部要因(Apple のバグ)であり、加えて OP が望んだ「テンプレ手編集なしでの HTTP/2 無効化」は現行で環境変数/ラベルとして実装済み。",
+      "draftComment": "As a third party helping triage old issues, a quick note for the maintainers: the root cause here was a bug in the early iOS 11 HTTP/2 implementation, which (as @matt-hh pointed out in the thread, citing Apple's HT208136) was fixed by Apple in iOS 11.0.1 — and iOS 11 is now long past end of life, so this client-side issue should no longer be reachable in practice. Separately, the original ask of disabling HTTP/2 without hand-editing the template is now a first-class option in the current release (v1.11.2): HTTP/2 can be turned off globally via the `ENABLE_HTTP2` environment variable, or per proxied container via the `com.github.nginx-proxy.nginx-proxy.http2.enable=false` label (see the \"HTTP/2 support\" section of the docs and the `$http2_enabled` logic in `nginx.tmpl`). If the original reporter can no longer reproduce this, this might be a candidate for the maintainers to consider closing, though of course that judgement is theirs.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1075,
+      "title": "http2 push support added",
+      "ask": "2018年に提出された機能要望。nginxの公式ブログ(nginx 1.13.9のHTTP/2 Server Push)を引用し、nginx-proxyのテンプレートに `http2_push_preload on;` を追加してHTTP/2 Server Push(サーバープッシュ)をサポートしてほしい、という内容。スレッドではグローバル既定で有効化すべきか、per-host(コンテナ単位)のオプションにすべきか、そもそもユーザー自身がper-hostカスタム設定で実現できるのではないか、という議論に終始しており、実装(マージ)はされていない。masad-frostが個人forkでserver pushを有効化した例を提示しているのみ。",
+      "verdict": "environment-obsolete",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "Dockerfile.debian:7 / Dockerfile.alpine:7",
+          "detail": "現行イメージ(v1.11.2)のベースは nginx:1.31.2。HTTP/2 Server Push を有効化する http2_push / http2_push_preload ディレクティブはこのバージョンには存在しない。"
+        },
+        {
+          "source": "nginx upstream (CHANGES, nginx 1.25.1)",
+          "detail": "nginxは1.25.1でHTTP/2 Server Push機能(http2_push, http2_push_preload, http2_max_concurrent_pushes ディレクティブ)を完全に削除した。よって要望されたディレクティブは現行nginxでは設定不可能で、設定すれば構成エラーになる。"
+        },
+        {
+          "source": "nginx.tmpl (grep 'push' = no matches)",
+          "detail": "nginx.tmpl 全体に push/preload 関連のディレクティブや分岐は一切存在しない。要望機能は実装されておらず、現行テンプレートにも痕跡がない。"
+        },
+        {
+          "source": "docs/README.md:814-839 (HTTP/2 and HTTP/3 section)",
+          "detail": "現行ドキュメントのHTTP/2セクションは on/off 切替(ENABLE_HTTP2 既定true、http2.enable ラベル)のみを扱い、Server Push には一切言及がない。代わりにHTTP/3(QUIC)サポートが追加されている。"
+        },
+        {
+          "source": "thread comments (junderw, masad-frost)",
+          "detail": "スレッド内でメンテナ/コントリビュータからも『per-hostカスタム設定で各自実現できる』との指摘があり、ビルトイン化の必要性自体が弱いとされていた。明確な『直った』報告やマージはない。"
+        }
+      ],
+      "threadNote": "スレッドは「グローバル既定有効化 vs per-hostオプション vs 各自カスタム設定」の議論で止まっており、最終的な合意やマージ(解決報告)はない。masad-frost の個人fork例があるのみ。重要なのはコード側の議論よりも、要望対象のHTTP/2 Server Push 技術自体がnginx 1.25.1で上流から削除された点。現行イメージは nginx 1.31.2 を使用しており、この機能はもはや実現不可能(設定しても構成エラー)。よって機能要望は技術的に陳腐化している。",
+      "draftComment": "For context, I'm a third party going through some long-standing open issues. It looks like this feature request may now be obsolete due to upstream changes in nginx itself. HTTP/2 Server Push (the `http2_push` / `http2_push_preload` directives referenced here) was deprecated by major browsers and then removed entirely from nginx in version 1.25.1, so the directives no longer exist. The current nginx-proxy release (v1.11.2) is built on nginx 1.31.2 (see `Dockerfile.debian` / `Dockerfile.alpine`), well past that removal, meaning `http2_push_preload on;` can no longer be configured at all. HTTP/2 itself remains enabled by default and HTTP/3 support has since been added (see the \"HTTP/2 and HTTP/3\" section of the docs). Given this, the request can probably no longer be implemented; if maintainers agree, this might be a candidate for closing, though I'll leave that to your judgement. It may be worth a quick confirmation by anyone still interested.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 912,
+      "title": "client_max_body_size seems has no effect",
+      "ask": "WordPress を nginx-proxy 背後で動かしているユーザーが、nginx コンテナ側(http/server/location)・nginx-proxy の nginx.conf の http セクション・vhost.d/default に client_max_body_size を設定し、PHP コンテナの php.ini も合わせたのに、アップロード上限が 2M のままで効かない、という設定/サポート系の質問。本文は「2M に制限されたまま」「どう直せばよいか」という相談で、明確なコードバグの報告ではない。",
+      "verdict": "partially-resolved",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "source": "issue #912 body",
+          "detail": "ユーザーの症状は『アップロード上限が 2M のまま』。2M は nginx の既定ではなく PHP の upload_max_filesize/post_max_size の典型的な既定値であり、根本原因は nginx-proxy ではなく PHP/WordPress 側の設定にあった可能性が高い(外部要因)。"
+        },
+        {
+          "source": "issue #912 thread comment (christopherdolan)",
+          "detail": "スレッド内で『/etc/nginx/conf.d/larger_body.conf に client_max_body_size 4096M を書いてコンテナを再起動したら 413 が止まった』という具体的な回避策/解決報告が既に出ている。"
+        },
+        {
+          "source": "docs/README.md:920-993 (Proxy-wide / Per-VIRTUAL_HOST)",
+          "detail": "現行 v1.11.2 のドキュメントは proxy 全体(/etc/nginx/conf.d/*.conf)と vhost 単位(/etc/nginx/vhost.d/<host> と vhost.d/default)の両方で任意設定を追加する方法を明記し、まさに client_max_body_size 100m; を実例として示している。"
+        },
+        {
+          "source": "nginx.tmpl:1099-1103",
+          "detail": "vhost.d/<host> および vhost.d/default の include が server {} ブロック内で行われる。client_max_body_size は server コンテキストで有効なディレクティブなので、ドキュメント記載の vhost.d 方式は実際に機能する。"
+        }
+      ],
+      "threadNote": "3コメントのみ。neilpang が無関係寄りの PR #858 を貼り、kamermans が『413 が出ているのか別エラーか』と確認を求めた段階で OP の返信は途絶。最終コメントで christopherdolan が conf.d に設定ファイルを置いて再起動する具体的な回避策で 413 が解消したと報告しており、実質的な解決報告がスレッド内に存在する。ただし OP 自身による確定報告はない。",
+      "draftComment": "",
+      "reasonNoComment": "これはコードバグ報告ではなく設定/サポート系の質問で、症状の『2M 制限』は nginx-proxy 側ではなく PHP/WordPress(upload_max_filesize 等)の既定値が原因だった可能性が高い。nginx-proxy 側の設定手段(conf.d / vhost.d)は現行ドキュメントで明確に説明され機能するが、これは『コードの不具合が修正された』のではなく元々ドキュメントで対応可能な範囲の話であり、根本原因が外部にあった疑いが強い。したがって verdict は partially-resolved とし、resolved/environment-obsolete に限定される下書きコメント作成条件を満たさないため空とした。誤って『nginx-proxy 側で解決済み』と断じると、PHP 側が原因だった可能性を見落とす害がある。",
+      "recommendPost": false
+    },
+    {
+      "number": 1051,
+      "title": "Add virtual host without recreating container",
+      "ask": "新しい VIRTUAL_HOST(サイト/ドメイン)を追加する際に、nginx-proxy コンテナを作り直したり止めたりせず、既存サイトをダウンタイムなしのまま追加できるか、という質問。OPは他プロジェクトを止めずに新サイトを足したいと述べている。スレッドでは第三者コメンターが「複数サイトを足すにはコンテナを作り直すしかないのでは(要確認)」と誤った推測をしたり、手動で conf を置いて nginx -s reload する回避策に落ち着いたりしており、製品の中核機能を誤解した support 系の質問。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "README.md:28",
+          "detail": "「docker-gen generates reverse proxy configs for nginx and reloads nginx when containers are started and stopped.」と明記。新コンテナの起動/停止に応じてnginx-proxyコンテナ自身は作り直さず設定を自動再生成しnginxをリロードする、というのが製品の中核挙動。"
+        },
+        {
+          "source": "app/Procfile:1",
+          "detail": "docker-gen を `-watch -event-filter event=connect -event-filter event=disconnect -notify \"nginx -s reload\"` で起動。Dockerのconnect/disconnectイベントを監視し、検知時に graceful な `nginx -s reload`(コンテナ再作成や停止ではない)を実行する。よって新しいVIRTUAL_HOSTコンテナを起動するだけで自動追加され、既存サイトはダウンタイムなしで継続する。"
+        },
+        {
+          "source": "README.md:44-53",
+          "detail": "新サイト追加手順は『VIRTUAL_HOST 環境変数を付けて目的のコンテナを起動するだけ』。nginx-proxyコンテナの再作成手順は一切不要であることを示す。"
+        },
+        {
+          "source": "release 1.11.2 (2026-06-18)",
+          "detail": "現行最新リリース。上記の-watch/-notifyによる自動リロード設計は現行コードに存在。"
+        }
+      ],
+      "threadNote": "スレッドはメンテナ未関与で、第三者コメンター同士が「複数サイトはコンテナ再作成が必要かも(誰か詳しい人に確認を)」と誤った推測で締めくくっている。実際にはこれが製品の最も基本的な機能であり、推測は誤り。最終コメント(2018年)では手動confと手動reloadという不要な回避策が共有されているが、本来そのような手作業は不要。OPは nginx-proxy の自動検出/自動リロードの仕組みを誤解していたと考えられる。これは2018年時点でも成立していた挙動なので『特定バージョンで修正』というより『現行コード/docsが該当挙動を備えている』ことが根拠。",
+      "draftComment": "Hello, just a third party going through some old issues. For what it's worth, this appears to already be the core, built-in behavior of nginx-proxy rather than something that requires recreating the container. As stated in the current README (v1.11.2): \"docker-gen generates reverse proxy configs for nginx and reloads nginx when containers are started and stopped.\" Internally (see app/Procfile), docker-gen runs with `-watch ... -event-filter event=connect -event-filter event=disconnect -notify \"nginx -s reload\"`, so when you start a new container with a `VIRTUAL_HOST`, nginx-proxy detects the Docker event, regenerates the config, and issues a graceful `nginx -s reload` — the nginx-proxy container itself is never recreated and existing sites stay up. So adding a new virtual host should be as simple as starting the new container, with no downtime for the others. If you (or the OP) can confirm this matches your current experience on a recent release, maintainers might consider this a candidate for closing, though that's of course their call.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 434,
+      "title": "wrong regExp matching",
+      "ask": "証明書の自動選択ロジックが、ホスト名に対して不適切な証明書をマッチさせていた。具体的には VIRTUAL_HOST が `blog.anotherutopos.me` のとき、本来は親ドメインではない `utopos.me.crt`(ホスト名の末尾部分文字列にすぎない)を誤って選択してしまう、という証明書マッチングのバグ報告。スレッドでは wader が「docker-gen 側に regex マッチの新機能が必要そう」「当面は CERT_NAME で上書きするのが回避策」と述べ、その後 sandrodz が「今でもたまに遭遇する」とコメントしている(当時の話)。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:769-772",
+          "detail": "$vhostCert はホスト名と完全一致する証明書 ({hostname}.crt) が存在する場合のみ採用。部分文字列・サフィックスマッチは行わない。"
+        },
+        {
+          "source": "nginx.tmpl:774-780",
+          "detail": "$parentVhostCert は、ホスト名のラベル数が2より大きい場合のみ、sprigSplitn \".\" 2 の ._1 で『最も左のラベルを1つだけ』除去した親ドメインを取得し、その完全一致証明書のみを探す。blog.anotherutopos.me → anotherutopos.me となり、utopos.me には決してならない。"
+        },
+        {
+          "source": "nginx.tmpl:767,785",
+          "detail": "証明書の優先順位は CERT_NAME(完全一致)→ホスト名完全一致→親ドメイン完全一致(1階層のみ)→default の or チェーン。サフィックス/正規表現/closest 的な曖昧マッチは存在しない。"
+        },
+        {
+          "source": "nginx.tmpl (closest/trimSuffix/regexMatch/contains 検索)",
+          "detail": "テンプレート内に closest・trimSuffix・regex・部分文字列による証明書マッチングは一切残っていない(grep で該当なし)。報告当時の曖昧マッチ実装は置き換え済み。"
+        },
+        {
+          "source": "docs/README.md:762-776",
+          "detail": "Certificate selection セクションが現行挙動を明文化:『hostname がサブドメインで、その親ドメインに完全一致する証明書が存在する場合のみ使用(foo.bar.com → bar.com.crt)』と1階層・完全一致を明記。"
+        },
+        {
+          "source": "release 1.11.2 (2026-06-18)",
+          "detail": "現行最新リリース。ローカルクローンが同相当で、上記ロジックを備えている。"
+        }
+      ],
+      "threadNote": "スレッドではメンテナ(wader)自身が「docker-gen に新機能が必要」「当面は CERT_NAME で回避」と述べ、明確な修正完了報告はないまま放置されている(最後のやり取りは『CERT_NAME を使っても起きるか?』という問いで終了)。つまり当時は未解決だったが、その後テンプレートの証明書選択ロジックが完全一致+1階層親ドメインのみへと再実装され、報告の根本原因(サフィックス的な曖昧マッチ)が構造的に消えている。回避策だった CERT_NAME は現在も最優先の明示指定手段として健在。",
+      "draftComment": "Hi - going through some long-standing open issues here as a third party. This specific behavior appears to no longer be possible in the current nginx-proxy (v1.11.2). The certificate selection logic in `nginx.tmpl` now only matches a certificate that is an exact match for the hostname, or an exact match for the immediate parent domain (it strips exactly one leftmost label via `sprigSplitn \".\" 2`, so `blog.anotherutopos.me` resolves only to `blog.anotherutopos.me.crt` or `anotherutopos.me.crt`). There is no longer any suffix/substring matching, so `utopos.me.crt` could never be selected for `blog.anotherutopos.me`. This is also documented in the \"Certificate selection\" section of the README. If anyone can still reproduce this on a current image it would be worth a note; otherwise, if the maintainers agree, this might be a candidate to close. (`CERT_NAME` also remains available as the highest-priority explicit override.)",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1143,
+      "title": "Alternative ports producing 503 error",
+      "ask": "表題は「代替ポートで503エラー」だが、スレッドの実体は別。報告者 steveh138 自身がスレッド内で原因を Docker Swarm と特定している（VIRTUAL_PORT の有無に関わらず再現し、default.conf が更新されない。コンテナが nginx-proxy と同じノードに乗らないと設定に反映されない）。最終的な具体的要望は「これは Swarm 向けに設計されていないようだ。この制限がドキュメントに記載されていなかったので、ドキュメントに明記してほしい」という『ドキュメント追記の依頼』。2人目のコメント(CamoMacdonald)も「現状 swarm モードでは動作する設計になっていない」と追認している。つまり standing ask は「nginx-proxy がマルチノードの Docker Swarm を(自動では)サポートしない、という制限のドキュメント化」。",
+      "verdict": "not-resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "thread comment (steveh138, 2018-06-18)",
+          "detail": "報告者自身が『これは swarm 向けに設計されていない。コンテナが nginx-proxy と同じノードに乗らないと config が更新されない。この制限が記載されていなかったのでドキュメントに反映してほしい』と述べ、ask がドキュメント追記であることを明確化。"
+        },
+        {
+          "source": "thread comment (CamoMacdonald, 2018-07-16)",
+          "detail": "『現状 swarm モードで動作する設計ではない。カスタマイズで対応可能だが自動化の一部が失われる』と追認。Swarm 非対応という前提を裏付ける。"
+        },
+        {
+          "source": "README.md (現行 v1.11.2)",
+          "detail": "全文を grep しても \"swarm\" の語が一切存在しない。docker-gen が単一の Docker ソケットを監視しコンテナIPで backend に到達する仕組み(L28付近)で、マルチノード Swarm を前提にしていない。OPが求めた『Swarm制限のドキュメント化』は未実施。"
+        },
+        {
+          "source": "docs/README.md (現行 v1.11.2)",
+          "detail": "\"swarm\" の記載なし。Multiple Networks の節(L310〜)で overlay network には触れるが、Swarm のマルチノード スケジューリングで別ノードの service task に到達できないという制限の明記はない。limitations 節(L305付近)も別件(ポート共有)に限定。"
+        },
+        {
+          "source": "nginx.tmpl:91-97",
+          "detail": "Swarm の \"ingress\" ネットワークを IP 計算時に無視する処理は存在するが、これは別ノード上の task への到達不能というOPの問題を解決するものではなく、ドキュメント化でもない。むしろコメントに『Swarm task のときだけ ingress を無視すべき(TODO)』と未完の注記が残る。"
+        }
+      ],
+      "threadNote": "スレッドは「直った」報告ではなく、報告者が自力で原因を Swarm と特定し『ドキュメントに制限を明記してほしい』という要望に着地している。回避策として『カスタマイズすれば可能だが自動化が損なわれる』という言及はあるが標準化された手順ではない。要望(Swarm非対応の明文化)は現行ドキュメントで満たされていないため、resolved とは言えない。元の503自体は環境固有のサポート質問でもあり、コードバグとしての修正対象ではない。",
+      "draftComment": "",
+      "reasonNoComment": "verdict が not-resolved のため下書きは作成しない。実体は『Docker Swarm 非対応をドキュメント化してほしい』という未対応のドキュメント要望であり、現行 README/docs に Swarm の記載は一切ない。よって『解決済み』と公開コメントするのは不正確で害になる。元の503はサポート質問的でもあり、第三者として『解決済み』と言い切れる根拠がない。",
+      "recommendPost": false
+    },
+    {
+      "number": 133,
+      "title": "nginx-proxy only sees docker's virtual interface (and IP)",
+      "ask": "フロント側の nginx-proxy が受け取るクライアントIPが、実際の外部IPではなく docker0 ブリッジのゲートウェイIP(172.17.42.1)になってしまう。そのため X-Real-IP 等を設定しても nginx 自体が真のクライアントIPを見られない。どうすれば実IPを見られるか、これは Docker デーモン側で調整すべきものか、という質問。",
+      "verdict": "not-resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "issue body (2015) + thread",
+          "detail": "症状は受信パケットの送信元IPが docker0 ゲートウェイ(172.17.42.1)に書き換わること。これは Docker のブリッジ/NAT(MASQUERADE)やユーザランドプロキシ(docker-proxy)に起因し、nginx-proxy がパケットを受け取る前の段階で発生する。nginx 側の設定では原理的に解決できない、というのがスレの結論。"
+        },
+        {
+          "source": "thread comments (md5, thatjames, mfenniak, polarathene, pini-gh)",
+          "detail": "原因と回避策は全て環境依存: --userland-proxy=false、network_mode: host もしくは host モードのポート公開、IPv6 では ip6tables:true + IPv6サブネット。IPv6 でユーザランドプロキシが使われていた根本原因は upstream の moby/moby#41622 で修正済みと報告。Ubuntu/Linux では動くが macOS/Windows/CoreOS では問題が出やすいとの報告。"
+        },
+        {
+          "source": "nginx.tmpl:589-590",
+          "detail": "現行 v1.11.2 でも proxy_set_header X-Real-IP $remote_addr; と X-Forwarded-For を既定で送出している。つまり nginx-proxy 側のヘッダ生成はもともと正しく、$remote_addr が正しければ実IPが伝わる。問題は $remote_addr が NAT で書き換わる点であり nginx-proxy のコードでは制御不能。"
+        },
+        {
+          "source": "nginx.tmpl:34,447-456,877-909 + docs/README.md:870-887",
+          "detail": "nginx-proxy が一次的に提供できる対策は PROXY protocol サポート(ENABLE_PROXY_PROTOCOL=true)で、これは現行に存在しドキュメント化済み。上流プロキシから realip モジュール経由で実クライアントIPを伝える方法を案内している。ただしこれは『上流に対応プロキシがある』前提で、本issueの素の Docker NAT 構成を直接『解決』するものではない。"
+        },
+        {
+          "source": "gh release view (tagName 1.11.2, publishedAt 2026-06-18)",
+          "detail": "ローカルリポジトリは現行最新 v1.11.2 相当であることを確認。"
+        }
+      ],
+      "threadNote": "スレッドは『これは nginx-proxy のバグではなく Docker のネットワーク(ブリッジ/NAT/userland-proxy)の問題』という共通理解に収束している。回避策(host ネットワーク、userland-proxy、IPv6 + ip6tables 等)は複数提示され標準化されつつあるが、いずれも環境依存。IPv6 起因のケースは upstream moby で修正済みとの報告(mfenniak)。一方で macOS/Windows などでは依然問題が残るとの言及(polarathene)があり、単一の『直った』報告で全体が解決したとは言えない。nginx-proxy 側のコード修正で閉じる類の問題ではない(support/environment 寄り)。",
+      "draftComment": "",
+      "reasonNoComment": "本issueは nginx-proxy のコードで修正される性質の不具合ではなく、Docker ホストのネットワーク構成(ブリッジ NAT・userland-proxy・IPv6 設定・ホストOS)に依存する support/環境問題。nginx-proxy は既に X-Real-IP/X-Forwarded-For を正しく送出しており(nginx.tmpl:589-590)、$remote_addr が NAT で書き換わるのはコードで制御できない。PROXY protocol(ENABLE_PROXY_PROTOCOL)という一次対策は存在し文書化済みだが、これは上流プロキシ前提で素の Docker NAT 構成を直接解決するものではないため『resolved』とは言い切れない。また IPv6 起因の根本原因は upstream で修正されたが macOS/Windows 等では未解決との報告もあり『environment-obsolete』と断定もできない。誤った『解決済み』コメントは害になるため verdict=not-resolved とし、公開コメントは作成しない。",
+      "recommendPost": false
+    }
+  ]
+}

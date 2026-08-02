@@ -1,0 +1,482 @@
+{
+  "results": [
+    {
+      "number": 114,
+      "title": "Support Docker via TLS",
+      "ask": "2015年に開かれた機能要望。当時のnginx-proxyはTLSで保護されたDockerデーモン(リモートのtcpソケット)に接続できなかった。jwilderは「docker-genがTLSをサポートしているので、Dockerの証明書/鍵をnginx-proxyコンテナで利用できるようにし、docker-genにそれを使わせる必要がある」と述べている。2020年のコメントでは、Docker Machineが対応した今、進展があったか問われている。要するに「リモートDockerホストへのTLS接続をサポートしてほしい」という要望。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "docs/README.md:1456-1462",
+          "detail": "現行ドキュメントに docker-gen 用環境変数として DOCKER_HOST(default unix:///var/run/docker.sock)、DOCKER_TLS_VERIFY(default false)、DOCKER_CERT_PATH(no default)が明記されている。これはまさにリモートDockerデーモンへTLS接続するための標準Dockerクライアント変数であり、issueが求めた『証明書/鍵を使ってTLSで接続する』機能そのもの。"
+        },
+        {
+          "source": "Dockerfile.debian:2",
+          "detail": "イメージは nginxproxy/docker-gen:0.16.6 をバンドルしている。docker-gen は公式 Docker Go SDK を使用し、DOCKER_HOST/DOCKER_TLS_VERIFY/DOCKER_CERT_PATH をネイティブに解釈して tcp://host:2376 のようなTLS接続を確立できる。"
+        },
+        {
+          "source": "app/docker-entrypoint.sh:38-53",
+          "detail": "_check_unix_socket は DOCKER_HOST が unix://* の場合のみソケット存在を検証する。tcp:// の場合は介入しないため、TLSによるリモート接続が阻害されない。"
+        },
+        {
+          "source": "README.md:28",
+          "detail": "nginx-proxy は nginx と docker-gen で構成され、docker-gen が設定生成を担うことが明記されている。TLS接続の実体は docker-gen 側の機能であり、それを上記環境変数で有効化できる。"
+        }
+      ],
+      "threadNote": "スレッドは短く、明示的な『解決済み』報告はない。2020年のコメントで進展を問われたまま放置されている。ただし要望されたTLS接続機能は、現行v1.11.2では DOCKER_HOST/DOCKER_TLS_VERIFY/DOCKER_CERT_PATH という形でドキュメント化された標準設定として既に実装・利用可能であり、機能要望として満たされている。漠然としたサポート質問ではなく明確な機能要望である点も判定を後押しする。",
+      "draftComment": "As part of triaging older open issues, I wanted to note that the capability requested here appears to be available in current nginx-proxy (v1.11.2). The bundled docker-gen (nginxproxy/docker-gen) uses the standard Docker client variables `DOCKER_HOST`, `DOCKER_TLS_VERIFY`, and `DOCKER_CERT_PATH`, which are documented in the README (see the \"docker-gen\" environment variables table in docs/README.md). Setting `DOCKER_HOST=tcp://<host>:2376` together with `DOCKER_TLS_VERIFY=true` and a `DOCKER_CERT_PATH` pointing at a mounted directory containing the client cert/key and CA lets nginx-proxy connect to a TLS-secured Docker daemon, which is what this issue asked for. If others can confirm this works for their setup, maintainers might consider this a candidate for closing, though I'll leave that judgment to them.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 263,
+      "title": "Optional forcing of https redirect, even without cert",
+      "ask": "nginx-proxy をSSL終端する外部ロードバランサ(AWS ELBなど)の背後で動かすケースで、nginx自身は証明書を持たず平文HTTPを受けている状態でも、特定のvhostに対して(1) HTTP→HTTPSリダイレクトを強制し、(2) HSTSを有効化したい、という要望。HTTPS判定にはX-Forwarded-Protoヘッダを使う必要があるだろう、とOPは述べている。OPは新しい環境変数 FORCE_HTTPS / FORCE_HSTS の追加を提案しつつ、環境変数増加への抵抗があることを認識した上で実装方針の意見を募っている(#121, #73 も同種)。",
+      "verdict": "not-resolved",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "source": "grep FORCE_HTTPS/FORCE_HSTS over whole repo",
+          "detail": "リポジトリ全体に FORCE_HTTPS / FORCE_HSTS という環境変数は一切存在しない。OPが提案した専用トグルは実装されていない。"
+        },
+        {
+          "source": "nginx.tmpl:957-999",
+          "detail": "HTTPS_METHOD=redirect のときの HTTP サーバブロックは無条件の `return 301 https://$host$request_uri;` を生成する。X-Forwarded-Proto を参照しないため、『外部LBが既にHTTPS終端しているときだけリダイレクトする/しない』という条件分岐には使えない。"
+        },
+        {
+          "source": "nginx.tmpl:1046-1086",
+          "detail": "HSTS(Strict-Transport-Security)ヘッダは `if ($https) { set $sts_header ...; }` の中でのみ付与され、かつ ssl リッスンを持つ(=nginx自身がTLS終端する)vhostでのみ出力される。$https は nginx 自身の SSL リスナでのみ真になり、X-Forwarded-Proto:https では真にならない。よってOPの『nginxは平文HTTPだけ、HTTPSはELBが終端』というシナリオでは組み込みHSTSは発火しない。"
+        },
+        {
+          "source": "nginx.tmpl:459-464,535-538,1081",
+          "detail": "X-Forwarded-Proto は $proxy_x_forwarded_proto としてバックエンドへ転送され、X-Forwarded-Ssl の算出にも使われるが、リダイレクト判定やHSTS付与のトリガーには使われていない。OPが望んだ『X-Forwarded-Proto を見てリダイレクト/HSTSを制御』する組み込み機能は無い。"
+        },
+        {
+          "source": "docs/README.md:905-998 (Custom Nginx Configuration)",
+          "detail": "コラボレータが2022年に案内した『Custom Nginx Configuration』(vhost.d / conf.d にカスタム設定をマウント)機能は現行でも存在・文書化されており、これがこの種のユースケースの推奨回避策のまま。専用機能化はされていない。"
+        },
+        {
+          "source": "docs/README.md:718-723",
+          "detail": "HTTPS_METHOD=noredirect の場合 HSTS は明示的に無効化される旨が記載。noredirect でHSTSを併用する組み込み手段は無い。"
+        }
+      ],
+      "threadNote": "スレッドはOPの本文1件 + コラボレータ(tkw1536)の2022年コメント1件のみ。tkw1536は『非常に特殊なユースケースであり Custom Nginx Configuration で実現できる』と回答しているが、これは『専用機能を入れる』のではなく『カスタム設定で各自対応してくれ』という案内であり、要望自体が機能として解決されたわけではない。issueはOPEN・ラベル無し。『直った』報告や具体的な回避策スニペットの共有は無い。",
+      "draftComment": "",
+      "reasonNoComment": "verdict が not-resolved のため下書きは作成しない。OPが要望した『X-Forwarded-Proto を見て https リダイレクト/HSTS を強制する組み込みトグル(FORCE_HTTPS/FORCE_HSTS 相当)』は現行 v1.11.2 でも実装されておらず、HTTPS_METHOD=redirect のリダイレクトは無条件、HSTS は nginx 自身がTLS終端する場合($https 真)にしか付与されない。コラボレータの案内したカスタム設定での回避は可能だが、それは『機能として解決済み』ではなくサポート的回避策にすぎないため、resolved として公開コメントするのは不適切。",
+      "recommendPost": false
+    },
+    {
+      "number": 350,
+      "title": "Support using docker hostname option",
+      "ask": "コンテナを `docker run -h myhost.dev` で起動したときに設定される `HOSTNAME` 環境変数(= dockerの `--hostname`/`-h` オプション)を、`VIRTUAL_HOST` の代替としてnginx-proxyが自動的に使ってほしい、という機能要望。現状はホスト名解決(/etc/hosts)用に `-h` を設定しても、プロキシ対象にするには別途 `VIRTUAL_HOST` も設定する必要があり、二重設定になるのが不満点。",
+      "verdict": "not-resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:673",
+          "detail": "vhost生成は `groupByMulti $globals.containers \"Env.VIRTUAL_HOST\" \",\"` で、VIRTUAL_HOST のみをキーにループしている。docker hostname/HOSTNAME をvhostソースにする分岐は存在しない。"
+        },
+        {
+          "source": "nginx.tmpl:602",
+          "detail": "もう一つのvhostソースは VIRTUAL_HOST_MULTIPORTS のみ。これら2つの環境変数以外からvhostを導出する仕組みはない。"
+        },
+        {
+          "source": "nginx.tmpl 全文 grep",
+          "detail": "`Env.HOSTNAME` や `.Config.Hostname`、`--hostname` を参照する箇所はテンプレート内に皆無。`$hostname` という変数はあるがこれはvhostキー用のローカル変数で、dockerコンテナのホスト名とは無関係。"
+        },
+        {
+          "source": "README.md:44-53",
+          "detail": "現行ドキュメントでもプロキシ対象にするには `VIRTUAL_HOST=...` を明示的に設定する手順のみが記載されており、HOSTNAME からの自動導出には言及がない。"
+        },
+        {
+          "source": "repo-wide grep (docs/app/README/nginx.tmpl)",
+          "detail": "`Env.HOSTNAME` / `docker hostname` / `--hostname` / `.Config.Hostname` を検索しても docs・app・README・テンプレに一致なし。該当機能・環境変数・テストは未実装。"
+        },
+        {
+          "source": "gh api issues/350",
+          "detail": "issueは2016-01-27作成で現在も open、type=Feature、コメント0件。スレッド上に解決報告・回避策・結論は一切ない。最終更新2025-01-19はラベル/型整理程度。"
+        }
+      ],
+      "threadNote": "コメントは0件。スレッド上に「直った」報告も回避策の合意も結論も存在しない。現行でもラベルなしの open なFeature要望のまま放置されている状態。なお実務上の回避策は単に `VIRTUAL_HOST` を明示設定することだが、これは要望が解消されたことを意味しない(OPはその二重設定を不満としている)。",
+      "draftComment": "",
+      "reasonNoComment": "verdictがnot-resolvedのため下書きは作成しない。現行v1.11.2のnginx.tmplは依然としてVIRTUAL_HOST/VIRTUAL_HOST_MULTIPORTSのみからvhostを生成しており、docker hostname(HOSTNAME)からvhostを導出する要望機能は未実装。解決済みコメントを投稿するのは誤りであり害になる。",
+      "recommendPost": false
+    },
+    {
+      "number": 597,
+      "title": "Wish/Enhancement: Per-VIRTUAL_HOST configuration via environment",
+      "ask": "2016年の機能要望(現在もOPEN、コメント0件)。「任意のper-VIRTUAL_HOST nginx設定を、プロキシ対象コンテナの環境変数(提案では VIRTUAL_HOST_CONFIG1, VIRTUAL_HOST_CONFIG2, ... )で指定できるようにしたい」というもの。当時は /etc/nginx/vhost.d/ に設定ファイルをマウントする方法しかなく、nginxコンテナ起動時にファイルを用意する必要があるのを避け、VIRTUAL_HOST と同じ流儀(プロキシ対象コンテナのenv)で任意設定を注入したい、という要望。",
+      "verdict": "not-resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:1097-1103",
+          "detail": "per-VIRTUAL_HOST のカスタム設定注入は現在も完全にファイルベース。$vhostFileName を使い /etc/nginx/vhost.d/<host> が存在すれば include、なければ /etc/nginx/vhost.d/default を include するのみ。"
+        },
+        {
+          "source": "nginx.tmpl:289-346",
+          "detail": "location ブロック側の per-host/per-path カスタム設定も /etc/nginx/vhost.d/<host>_location(_override) 等のファイル include のみ。要望にある VIRTUAL_HOST_CONFIG* のような『任意設定をenvで注入』する分岐は存在しない。"
+        },
+        {
+          "source": "docs/README.md:907,994-1103",
+          "detail": "『Custom Nginx Configuration』『Per-VIRTUAL_HOST』節は依然としてファイルを /etc/nginx/vhost.d/ にマウントする方法のみを案内。任意のnginx設定テキストをenv変数で渡す手段の記載は無い。"
+        },
+        {
+          "source": "grep VIRTUAL_HOST_CONFIG (nginx.tmpl/docs/test)",
+          "detail": "提案された VIRTUAL_HOST_CONFIG* というenv変数は nginx.tmpl・docs・test のどこにも存在しない。実装されていない。"
+        },
+        {
+          "source": "nginx.tmpl:749-816, docs/README.md",
+          "detail": "2016年以降に追加されたのは『特定の名前付き設定』のラベル/env化(com.github.nginx-proxy.nginx-proxy.* ラベル、HTTPS_METHOD/SSL_POLICY/HSTS/NETWORK_ACCESS/non-get-redirect/loadbalance/keepalive 等)であり、要望の『任意のnginxディレクティブをenvで注入』ではない。離散的なオプションのみ。"
+        }
+      ],
+      "threadNote": "スレッドはコメント0件・結論や回避策の議論も無く放置。OPが「受け入れられるなら自分が実装に取り組む」と申し出ているが、その後のやり取りは記録されていない。「直った」報告も無い。",
+      "draftComment": "",
+      "reasonNoComment": "要望そのもの(任意のper-VIRTUAL_HOST nginx設定をプロキシ対象コンテナの環境変数で注入する機能、提案名 VIRTUAL_HOST_CONFIG*)は現行 v1.11.2 でも未実装で、verdict は not-resolved。resolved/environment-obsolete ではないため下書きは作成しない。確かにプロジェクトはラベルや個別env(HTTPS_METHOD, SSL_POLICY, 各種ラベル等)で多くの一般的ケースをenv/ラベルから設定可能にしたが、これは『特定の名前付き設定』に限られ、要望の『任意設定の注入』はカバーしていない。任意設定は依然 /etc/nginx/vhost.d/ へのファイルマウントが必要であり、『解決済み』と公開コメントするのは不正確で害になりうる。",
+      "recommendPost": false
+    },
+    {
+      "number": 621,
+      "title": "Disable https redirect for some domains in the same container.",
+      "ask": "1つのコンテナが複数のホスト名を持つ場合(例: VIRTUAL_HOST=example.ru,mobile.example.ru)に、同一コンテナ内でホストごとに異なる HTTPS_METHOD を設定したい、という要望。OPは example.ru は HTTPS_METHOD=redirect、mobile.example.ru は HTTPS_METHOD=nohttps のように、ホスト単位で挙動を分けたい(ただし1コンテナで)。コメントは0件で、スレッドに結論・回避策・「直った」報告は一切ない。",
+      "verdict": "partially-resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:790",
+          "detail": "$https_method := groupByKeys $vhost_containers \"Env.HTTPS_METHOD\" | first | default $globals.config.https_method。HTTPS_METHOD はそのvhostを宣言するコンテナの env から解決される。つまり値の単位はコンテナ(の env)であり、vhost単位のラベルは存在しない。"
+        },
+        {
+          "source": "nginx.tmpl:673",
+          "detail": "groupByMulti $globals.containers \"Env.VIRTUAL_HOST\" \",\" によりカンマ区切り VIRTUAL_HOST はホスト名ごとにグループ化される。だが1コンテナが複数ホストを宣言すると、その単一コンテナが両ホストのグループに入り、同じ単一の Env.HTTPS_METHOD が両方に適用される。よって『同一コンテナ内でホストごとに別の HTTPS_METHOD』はできない。"
+        },
+        {
+          "source": "docs/README.md:718",
+          "detail": "『HTTPS_METHOD can be specified on each container ... or on the proxy container to set it globally』。明示的にコンテナ単位/グローバル単位の設定であり、ホスト単位ではないと文書化されている。"
+        },
+        {
+          "source": "docs/README.md:1480",
+          "detail": "設定一覧表で HTTPS_METHOD は『container env var』列のみで、per-VIRTUAL_HOST ラベル列は n/a。http2.enable や non-get-redirect と異なり、ホスト単位ラベルが用意されていないことを裏付ける。"
+        },
+        {
+          "source": "nginx.tmpl:790 (per-vhost resolution)",
+          "detail": "裏を返せば、ホストごとに別コンテナを立て各々に VIRTUAL_HOST(単一)と HTTPS_METHOD を付ければ、vhost単位で異なる HTTPS_METHOD を実現できる(回避策として成立)。OPの根本目的はこの分割パターンで達成可能。"
+        }
+      ],
+      "threadNote": "コメント0件・未クローズ。スレッドには解決報告も回避策提示もメンテナ回答も一切ない、純粋なサポート/機能要望の放置issue(2016年)。OPが望んだ『1コンテナ内でホスト単位に HTTPS_METHOD を分ける』機能は現行 v1.11.2 でも未実装で、per-VIRTUAL_HOST ラベルも存在しない。一方で根本目的(ホストごとに redirect/nohttps を分ける)はコンテナを分割すれば達成でき、per-container/per-vhost の HTTPS_METHOD 解決は実装・文書化済み。",
+      "draftComment": "",
+      "reasonNoComment": "verdict が partially-resolved のため、下書き作成条件(resolved もしくは environment-obsolete)を満たさない。OPの文字どおりの要望(同一コンテナ内でホストごとに異なる HTTPS_METHOD)は現行 v1.11.2 でも未実装であり、『解決済み』と公開コメントするのは不正確で害になりうる。回避策(コンテナ分割)は提示できるがサポート的内容であり、棚卸しコメントとしての『resolved』主張には当たらないため投稿は見送る。",
+      "recommendPost": false
+    },
+    {
+      "number": 625,
+      "title": "container cannot start when any empty VIRTUAL_HOST is supplied",
+      "ask": "VIRTUAL_HOST に空の値(例: カンマを2つ打ってしまった \"host1,,host2\" のような指定で生じる空ホスト名)が含まれると、初回起動は表面上通っても設定が正しく動作せず、以降の(再)起動/設定再生成が失敗する。OPは「空のホスト文字列を除去すれば直るはず」と要望している。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:672-690",
+          "detail": "VIRTUAL_HOST を groupByMulti で \",\" 分割した後、各ホスト名を trim し、空文字なら continue でスキップする。コメントにも『Ignore containers with VIRTUAL_HOST set to the empty string.』と明記。空ホストはループに乗らない。"
+        },
+        {
+          "source": "nginx.tmpl:959 / nginx.tmpl:1021",
+          "detail": "server_name は非空の $hostname に対してのみ出力されるため、空ホストに起因する壊れた `server_name ;` ディレクティブは生成されず、nginx 設定が無効化されない。"
+        },
+        {
+          "source": "test/test_vhost-empty-string/test_vhost-empty-string.yml",
+          "detail": "OPの事象を正確に再現する専用テスト。web2 は末尾カンマ 'web2...,'、web3 は先頭空 ' ,web3...'、web4 は中間の空ホスト 'web4a..., , web4b...'(=報告のダブルカンマ事例)、web1 は空白のみ ' ' を VIRTUAL_HOST に設定。"
+        },
+        {
+          "source": "test/test_vhost-empty-string/test_vhost-empty-string.py",
+          "detail": "有効ホスト(web2/web3/web4a/web4b)が server_name として現れること、かつ `^\\s*server_name\\s*;` という空の server_name が一切存在しないことを assert で検証。回帰テストとして担保済み。"
+        }
+      ],
+      "threadNote": "コメントは0件で、スレッド上の追加議論や回避策・解決報告は存在しない。判定は完全に現行コード/テストの事実に依拠している。",
+      "draftComment": "Hello, and apologies for resurfacing such an old issue. As part of triaging long-standing open issues, I checked whether this is still reproducible on the current release (v1.11.2). It appears to be handled now: in `nginx.tmpl`, the `VIRTUAL_HOST` values are split on commas and each hostname is trimmed and skipped when empty (see the loop around lines 672-690, with the comment \"Ignore containers with VIRTUAL_HOST set to the empty string\"), so an accidental double comma such as `host1,,host2` no longer produces an empty vhost or an invalid `server_name ;` directive. There is also a dedicated regression test, `test/test_vhost-empty-string/`, covering trailing-comma, leading-empty, mid-string empty (`web4a..., , web4b...`) and whitespace-only `VIRTUAL_HOST` values, asserting that valid hosts still get a `server_name` and that no empty `server_name ;` is emitted. If others can confirm the same on a current image, maintainers might consider this a candidate for closing, though I'll leave that judgment to them.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 776,
+      "title": "HTTPS_METHOD HSTS vs 301 only",
+      "ask": "HTTPS_METHOD=\"redirect\"(デフォルト)のとき、HSTSヘッダー(Strict-Transport-Security)が常に付与され、301リダイレクトを維持したままHSTSだけを無効化する手段が存在しない、という指摘。HSTSをオプトインで個別制御できる専用の環境変数を設けてほしい、という要望。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:818-819",
+          "detail": "vhostごとに専用の HSTS 環境変数を読み取り、デフォルト max-age=31536000 にフォールバックする独立した $hsts 値を構築している。HTTPS_METHOD とは別の変数として実装されている。"
+        },
+        {
+          "source": "nginx.tmpl:1081-1086",
+          "detail": "HSTSヘッダー出力条件が `not (or (eq https_method \"noredirect\") (eq hsts \"off\"))` となっており、HTTPS_METHOD=redirect のままでも HSTS=off にすれば Strict-Transport-Security ヘッダーが出力されない。リダイレクト(301)とHSTSが完全に分離制御されている。要望そのものが実装済み。"
+        },
+        {
+          "source": "nginx.tmpl:29",
+          "detail": "グローバルにも HSTS 環境変数を受け付け、デフォルト max-age=31536000 を設定。proxy/コンテナ両レベルで制御可能。"
+        },
+        {
+          "source": "docs/README.md:720",
+          "detail": "『You can disable HSTS with the environment variable HSTS=off or use a custom HSTS configuration like HSTS=max-age=31536000; includeSubDomains; preload』とドキュメント化され、HSTSの独立制御が公式に案内されている。"
+        },
+        {
+          "source": "test/test_ssl/test_hsts.py + test_hsts.yml",
+          "detail": "test_web2_HSTS_off が HSTS=off で Strict-Transport-Security ヘッダーが付かないこと、test_web3_HSTS_custom がカスタム値を検証。web2/web3 は HTTPS_METHOD を指定しておらずデフォルト(redirect)挙動下でHSTSのみ無効化/変更できることを担保している。"
+        }
+      ],
+      "threadNote": "スレッドは2017年で本文+1コメントのみ。コメントは関連PR #409 を案内するだけで結論は出ていない。issueはOPENのまま。しかし要望(HSTSと301を独立制御する専用変数)は現行 v1.11.2 で HSTS 環境変数として完全に実装され、テスト・ドキュメントも備わっている。スレッド上に明示的な「直った」報告がないため棚卸しコメントの価値あり。",
+      "draftComment": "Hi, doing some housekeeping on old issues here as a third party. This feature request appears to be addressed in current nginx-proxy (v1.11.2): there is now a dedicated `HSTS` environment variable, fully decoupled from `HTTPS_METHOD`. With `HTTPS_METHOD=redirect` still in effect, setting `HSTS=off` disables the `Strict-Transport-Security` header while keeping the 301 redirect (custom values like `HSTS=max-age=31536000; includeSubDomains; preload` are also supported). See nginx.tmpl (the HSTS header is only emitted when `https_method` is not `noredirect` and `hsts` is not `off`), the documentation under \"How SSL Support Works\" in docs/README.md, and the regression tests in `test/test_ssl/test_hsts.py` (`test_web2_HSTS_off`, `test_web3_HSTS_custom`). If you can confirm this matches what you were after, maintainers may want to consider it as a close candidate.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 871,
+      "title": "USE_IP_HASH seems to have zero impact to the default.conf",
+      "ask": "報告者(redskate)は `USE_IP_HASH` 環境変数を設定しても生成される default.conf に `ip_hash;` が反映されず効果がない、と報告。ドキュメント不足への不満も述べている。実質的な要望は「複数コンテナ(scale/replicas)構成でセッションスティッキー相当(ip_hash等)を効かせたい」という load balancing / セッションアフィニティの実現。スレッド後半で報告者はnginxのip_hashの是非を論じて「nginxから距離を置く」と離脱気味になり、別コメント(Pimmetje)が「USE_IP_HASH は未マージのopen PRにしか存在しない」と指摘している。",
+      "verdict": "resolved",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "source": "thread comment (Pimmetje)",
+          "detail": "USE_IP_HASH はマージされておらず open PR にしか存在しないと明言。つまり当該の壊れた env var はそもそも本体に組み込まれていなかった。"
+        },
+        {
+          "source": "grep USE_IP_HASH (research以外)",
+          "detail": "現行 v1.11.2 のコード/テンプレート/docs/test に USE_IP_HASH は一切存在しない(自分の調査メモのみヒット)。問題の env var 自体が廃止/不採用。"
+        },
+        {
+          "source": "nginx.tmpl:357-361, 749-760",
+          "detail": "upstream ブロックで $vpath.loadbalance を出力。`com.github.nginx-proxy.nginx-proxy.loadbalance` ラベル(groupByLabel)から取得し、`ip_hash;` や `hash $remote_addr;` 等の任意の upstream ディレクティブを注入できる汎用機構が実装済み。"
+        },
+        {
+          "source": "docs/README.md:377-410, 1482",
+          "detail": "'Upstream Server HTTP Load Balancing Support' セクションで loadbalance ラベルの使い方(セミコロン・$$エスケープ・replicas例)を明記。env/label一覧表にも掲載。当時不満だったドキュメント不足も解消。"
+        },
+        {
+          "source": "test/test_loadbalancing/test_loadbalancing.py + .yml",
+          "detail": "loadbalance ラベルでスティッキー(同一レスポンス)になること(test_loadbalance_hash)と、ラベル無しではround-robinで分散すること(test_loadbalance_roundrobin)を検証する統合テストが存在。"
+        }
+      ],
+      "threadNote": "スレッドで Pimmetje が「USE_IP_HASH は未マージのopen PRにしかない」と指摘済みで、機能が本体に無かったことが当時から判明している。報告者自身は解決を待たずnginxから離脱気味に終わっており、明確な「直った」報告はない。ただし現行では env var ではなくラベル方式の汎用ロードバランシング機能として置き換え・実装・文書化・テスト済み。",
+      "draftComment": "Tidying up some long-standing issues here as a third-party contributor — apologies for the noise. The `USE_IP_HASH` environment variable referenced in this report was only ever part of an unmerged PR (as @Pimmetje noted above) and does not exist in current nginx-proxy. The underlying need — choosing a non-default upstream load-balancing method such as `ip_hash` for sticky behaviour across multiple replicas — is now handled by the `com.github.nginx-proxy.nginx-proxy.loadbalance` container label, which injects any nginx upstream directive (e.g. `ip_hash;` or `hash $remote_addr;`) into the generated `upstream{}` block. This is implemented in `nginx.tmpl`, documented under \"Upstream Server HTTP Load Balancing Support\" in the README (including the dollar-sign escaping caveat), and covered by the `test_loadbalancing` integration tests in v1.11.2. Anyone running into this could try the `loadbalance` label on a current version to confirm; if that addresses it, maintainers might consider this a candidate for closing.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1013,
+      "title": "Empty upstream definition leads to nginx-proxy failing to start/restart",
+      "ask": "VIRTUAL_HOST が設定されているがnginx-proxyから到達可能なネットワークに居ないコンテナがあると、docker-gen が「server ディレクティブの無い空の upstream ブロック」を含む不正な設定を生成してしまう。nginx は `reload` 時にはこれを無視して最後の有効な設定を保つが、nginx-proxy コンテナを再起動すると空の upstream のせいで nginx が起動に失敗する。結果として、1つの壊れた/誤設定のコンテナがプロキシ全体をダウンさせ得る、という問題。空 upstream を生成しない(=フロントエンド全体を巻き添えにしない)挙動への修正を求めている。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:376-380",
+          "detail": "upstream テンプレートに `{{- if lt $servers 1 }} ... server 127.0.0.1 down; {{- end }}` のフォールバックがあり、到達可能なバックエンドが1つも無い場合でも空の upstream ブロックにならない。コメントに nginx-proxy/nginx-proxy#1105 と明記。空 upstream が nginx 起動失敗の原因だったので、これがまさに本issueの修正。"
+        },
+        {
+          "source": "nginx.tmpl:116-119",
+          "detail": "`{{- if and (not (index $.globals.networks .Name)) (not $.globals.networks.host) }}` で、nginx-proxy が到達できないネットワーク上のコンテナを `(unreachable)` として検出しスキップする。結果 $ip が空→$servers=0 となり上記フォールバックが発火。これは本issueの「VIRTUAL_HOST はあるが到達不能ネットワーク」シナリオそのもの。"
+        },
+        {
+          "source": "test/test_server-down/test_server-down.yml",
+          "detail": "VIRTUAL_HOST を設定しつつ `network_mode: \"none\"`(nginx-proxy から到達不能)のコンテナを定義。本issueの再現条件と一致するテストフィクスチャ。"
+        },
+        {
+          "source": "test/test_server-down/test_server-down.py",
+          "detail": "生成された conf が有効(nginx 起動成功・get_conf() 取得可)で、`server 127.0.0.1 down;` がちょうど1回含まれ、リクエストは 502/503 を返すことを assert。空 upstream で起動失敗しないことを保証する専用テスト。"
+        },
+        {
+          "source": "issue #1105 (CLOSED/COMPLETED)",
+          "detail": "タイトル『nginx-proxy chokes on containers from invisible networks』。本issue(#1013)と同種の『到達不能ネットワークのコンテナ』問題で、completed としてクローズ済み。現行テンプレの修正がこの #1105 を参照している。"
+        }
+      ],
+      "threadNote": "スレッドのコメントは1件のみで、別issue #1015 のネットワーク設定(ユーザ側の回避策)へのリンクを示すだけ。メンテナによる「直った」報告や結論は本スレッドには無いが、コードベース側で恒久対応(フォールバック server down + 専用テスト)が入っており、関連 issue #1105 が COMPLETED でクローズ済み。判定の主根拠は現行コード/テストの存在。",
+      "draftComment": "Hello, just doing some housekeeping on old open issues here (as a third-party, not a maintainer). This appears to be addressed in the current release (v1.11.2). In `nginx.tmpl`, the `upstream` template now emits a fallback `server 127.0.0.1 down;` whenever no reachable backend server can be found (see the block referencing nginx-proxy/nginx-proxy#1105), so the generated `upstream` block is never empty. A container with `VIRTUAL_HOST` set but on a network nginx-proxy cannot reach is explicitly detected as `(unreachable)` and skipped, which triggers that fallback. This means nginx-proxy starts/restarts cleanly even with such a container present, and requests to it return 502/503 gracefully instead of bringing the proxy down. This behavior is covered by a dedicated test (`test/test_server-down/`), where a service with `VIRTUAL_HOST` and `network_mode: \"none\"` is verified to produce a valid config containing exactly one `server 127.0.0.1 down;`. If others can confirm against a current image, maybe the maintainers could consider this a candidate for closing.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1186,
+      "title": "VIRTUAL_PORT variable is not working",
+      "ask": "2018年の報告。OPは単一ポート(8080)のみをexposeしたTomcat/guacamoleコンテナで VIRTUAL_HOST・VIRTUAL_PORT=8080・--expose 8080 を設定したのに、生成された nginx 設定の proxy_pass が VIRTUAL_PORT を無視して80番ポートにフォールバックしてしまう、という不具合の訴え。同一設定の他コンテナは正常に動くと述べている。要するに「VIRTUAL_PORT が proxy_pass に反映されない(80番にされる)」問題。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:169-183 (container_port template)",
+          "detail": "ポート決定ロジックが現行コードに明確に存在。$default_port は『露出ポートが正確に1個ならそのポート、それ以外は80』(L172)。そして $port := eq $.port \"default\" | ternary $default_port $.port (L174) により、VIRTUAL_PORT が設定されている(=\"default\"でない)場合はその値をそのまま使用する。つまり VIRTUAL_PORT は80番より優先される。"
+        },
+        {
+          "source": "nginx.tmpl:713 と 362-372",
+          "detail": "VIRTUAL_PORT は groupByWithDefault $containers \"Env.VIRTUAL_PORT\" \"default\" でポートキーとして取り込まれ(L713)、upstream ブロックで server {{ $ip }}:{{ $args.port }}; として proxy_pass 先に反映される(L372)。OPの『proxy_passが80になる』経路が VIRTUAL_PORT を正しく使うようになっている。"
+        },
+        {
+          "source": "test/test_ports/test_virtual-port-single-different-from-single-port.{yml,py}",
+          "detail": "OPとほぼ同一シナリオの回帰テスト。単一ポート81のみexpose + VIRTUAL_PORT=90 の構成で、生成config に server <ip>:90; が現れることをregexで検証(80にフォールバックしない)。単一露出ポートでもVIRTUAL_PORTが優先される事実をテストで保証。"
+        },
+        {
+          "source": "test/test_ports/test_single-port-not-80.{yml,py}",
+          "detail": "VIRTUAL_PORT無しでも単一露出ポート(81)が自動選択され80にならないことを検証。スレッドのkylegoetzコメント『単一露出ポートなら自動設定されるべき』に対応する現行挙動。"
+        },
+        {
+          "source": "test/test_ports/test_virtual-port.* と test_default-80.*",
+          "detail": "優先順位マトリクスを網羅: 複数ポート+VIRTUAL_PORT=90→90、複数ポート+VIRTUAL_PORT無し→80。skip/xfailマーカーは無く有効なテスト。"
+        },
+        {
+          "source": "docs/README.md:56-64 および 1570-1574",
+          "detail": "ドキュメントが優先順位を明記: (1)VIRTUAL_PORT環境変数 →(2)露出ポートが1個ならそれ →(3)それも無ければデフォルト80。OPが欲しかった挙動が文書化済み。"
+        }
+      ],
+      "threadNote": "スレッドのコメントは2件のみで、いずれも当時の推測(『単一露出ポートなら自動設定されるはず』『tomcat関連かも』)で確定的な解決報告や回避策の合意は無い。issueはOPEN・ラベル無しのまま放置。現行コードでは VIRTUAL_PORT が単一露出ポートでも確実に優先される実装・テスト・ドキュメントが揃っており、2018年当時の古いバージョンの問題は現行 v1.11.2 では再現しないと判断できる。",
+      "draftComment": "Hello, I'm a third party going through some old open issues to help with housekeeping.\n\nOn current nginx-proxy (v1.11.2), `VIRTUAL_PORT` is honored even when the container exposes only a single port. The port-selection logic in `nginx.tmpl` (the `container_port` template) uses `VIRTUAL_PORT` directly whenever it is set, falling back to the single exposed port, and only then to port 80. This precedence is documented (docs/README.md, \"Virtual Ports\" / precedence list) and covered by tests in `test/test_ports/` — in particular `test_virtual-port-single-different-from-single-port`, which sets a single exposed port plus `VIRTUAL_PORT` and asserts the generated upstream points at the chosen port (not 80), and `test_single-port-not-80`, which shows a single non-80 exposed port is auto-selected without `VIRTUAL_PORT`.\n\nSo the behavior described here (a single-port container with `VIRTUAL_PORT` set still proxying to :80) should no longer occur on a current image. If you are able to confirm with a recent version, and if the maintainers agree, this might be a candidate to close. Thanks.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1238,
+      "title": "Setting WORKDIR in Dockerfile breaks ENTRYPOINT script.",
+      "ask": "jwilder/nginx-proxy(現 nginxproxy/nginx-proxy)を `FROM` してカスタムイメージを作る際、Dockerfile で `WORKDIR /etc/nginx` のように作業ディレクトリを変更すると、コンテナ起動時に `ERROR: open Procfile: no such file or directory` が出て失敗する、というバグ報告(2019年, コメント0件)。報告者は「ENTRYPOINT が WORKDIR=/app に依存しているべきでない(Procfile を相対パスで探しているのが原因)」と指摘している。",
+      "verdict": "not-resolved",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "source": "Dockerfile.debian:33,36 (および Dockerfile.alpine:36,39)",
+          "detail": "現行 v1.11.2 でも `WORKDIR /app/` を設定したうえで `CMD [\"forego\", \"start\", \"-r\"]` を実行している。forego の Procfile パス(`-f`)指定はなく、Procfile は作業ディレクトリ相対で解決される。"
+        },
+        {
+          "source": "app/Procfile:1-2",
+          "detail": "Procfile は `/app/Procfile` に存在する。テンプレートは `/app/nginx.tmpl` と絶対パス化されているが、Procfile 自体の探索は forego の CWD に依存したまま。"
+        },
+        {
+          "source": "app/docker-entrypoint.sh:128 (exec \"$@\")",
+          "detail": "エントリポイントは CMD をそのまま exec するだけで、Procfile の場所を絶対パスで固定する処理は無い。よって CWD が /app 以外だと forego が Procfile を見つけられない。"
+        },
+        {
+          "source": "docs/README.md (全文 grep)",
+          "detail": "派生イメージ作成時に WORKDIR を /app/ から変更してはいけない、という注意書きや回避策のドキュメント記載は存在しない。"
+        },
+        {
+          "source": "thread (gh issue view 1238)",
+          "detail": "コメント0件。スレッド上に修正報告・回避策・結論は一切無い。報告者の指摘した『Procfile を相対パスで探す構造』は現行コードでも温存されている。"
+        }
+      ],
+      "threadNote": "スレッドはコメント0件で、解決報告も回避策の合意も無い。報告された根本原因(forego が WORKDIR 相対で Procfile を探す)は v1.11.2 でも Dockerfile 上に残存しており、`forego start -f /app/Procfile` のような恒久対策は入っていない。派生イメージで WORKDIR を変えれば同じ `open Procfile: no such file or directory` が再現する見込みが高い。回避策(WORKDIR を /app/ のまま使う / カスタム後に WORKDIR /app/ を戻す)は存在するが、コードとしての修正・ドキュメント注記のいずれも無いため『解決済み』とは言えない。",
+      "draftComment": "",
+      "reasonNoComment": "verdict が not-resolved のため下書きは作成しない。現行 v1.11.2 の Dockerfile でも `WORKDIR /app/` + `CMD [\\\"forego\\\",\\\"start\\\",\\\"-r\\\"]`(Procfile を CWD 相対で解決)という構造が温存されており、報告された根本原因は修正されていない。派生イメージで WORKDIR を上書きすれば同じエラーが再現する可能性が高く、回避策はあるがコード/ドキュメント上の恒久対策が無い。誤って『解決済み』と公開すると害になるため投稿しない。",
+      "recommendPost": false
+    },
+    {
+      "number": 1280,
+      "title": "CVE-2019-5021: Alpine Docker Image 'null root password' Vulnerability",
+      "ask": "2019年5月、OP(gergol)が当時のnginx-proxyコンテナ内で `cat /etc/shadow | grep root` を実行したところ `root:::0:::::`(パスワードフィールドが空=未設定/null)になっていることに気づいた。これはCVE-2019-5021(Alpine 3.3〜3.8系のベースイメージでrootパスワードがnullになりログイン可能になる脆弱性)に該当する状態。OPは「より安全なAlpineベースのイメージに更新してほしい」と要望している。これはnginx-proxy自体のコードではなく、上流のAlpineベースイメージ由来の問題。",
+      "verdict": "environment-obsolete",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "Dockerfile.alpine:7",
+          "detail": "現行のAlpine版は `FROM docker.io/library/nginx:1.31.2-alpine` を使用。2019年当時の古いAlpineベースから大きく更新済み。"
+        },
+        {
+          "source": "docker run nginx:1.31.2-alpine: cat /etc/alpine-release",
+          "detail": "現行ベースイメージのAlpineは 3.23.4。CVE-2019-5021が影響したのは Alpine 3.3〜3.8 で、現行はその範囲を遥かに超えており非該当。"
+        },
+        {
+          "source": "docker run nginx:1.31.2-alpine: grep root /etc/shadow",
+          "detail": "現行イメージでは `root:*::0:::::` を返す。パスワードフィールドが `*`(=ロック/ログイン不可)になっており、OPが報告した脆弱な空フィールド `root:::0:::::` の状態は再現しない。これがまさに上流での修正後の状態。"
+        },
+        {
+          "source": "docker run nginx:1.31.2-alpine: apk info -v",
+          "detail": "alpine-baselayout-3.7.2-r0。CVE-2019-5021を修正したパッチ済みbaselayoutを大きく上回るバージョンで、修正は取り込み済み。"
+        },
+        {
+          "source": "README.md:62-72",
+          "detail": "現在はDebianベース版(nginx:mainline=debian slim)が提供されデフォルト/推奨タグ。Debian版はそもそもAlpine固有のこのCVEとは無関係。"
+        }
+      ],
+      "threadNote": "このissueはコメント0件・2019年5月作成で現在もopenのまま放置されている。スレッド上に議論・回避策・解決報告は一切ない。判定はスレッド情報ではなく、現行ベースイメージの実測(Alpine 3.23.4、root shadowが `root:*::0` でロック済み、baselayout 3.7.2-r0)に基づく。CVE-2019-5021自体は上流Alpineで2019年中にパッチ済みの既知CVEであり、現行イメージはその修正を取り込んだ状態。",
+      "draftComment": "Hello, and apologies for resurfacing such an old issue — I'm going through some long-dormant tickets to help with triage.\n\nThis appears to no longer apply to current images. CVE-2019-5021 was an upstream Alpine base-image issue affecting Alpine 3.3–3.8, and it was patched upstream back in 2019. The current `-alpine` variant is built `FROM nginx:1.31.2-alpine` (Dockerfile.alpine), which is based on Alpine 3.23.x. Running `grep root /etc/shadow` in the current image returns `root:*::0:::::` — the `*` means the root password is locked/disabled, rather than the empty field (`root:::0:::::`) reported here in 2019. The base also ships `alpine-baselayout-3.7.2-r0`, well past the patched release. In addition, a Debian-based variant is now the default/recommended image (see the README \"Image variants\" section), which isn't affected by this Alpine-specific CVE at all.\n\nIf you're able to confirm on a current image (e.g. `nginxproxy/nginx-proxy:1.11-alpine`) that the issue is gone on your side, and if the maintainers agree, this might be a candidate to close. Thanks!",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1300,
+      "title": "nginx.tmpl config is wrong: proxy_pass {{ trim $proto }} results in 502 Bad Gateway between containers",
+      "ask": "報告者(IAMtheIAM)は、nginx.tmpl の `proxy_pass {{ trim $proto }}://...` が `$proto` を `https` に展開し、バックエンドが内部的に HTTP しか喋らないために 502 Bad Gateway になると主張。「proxy_pass は内部向けには必ず http を使うべきで、なぜここで https 変数が使われるのか」という疑問・要望。ただし報告者がリンクしているのは upstream ではなくサードパーティのフォーク(evertramos/docker-compose-letsencrypt-nginx-proxy-companion)の nginx.tmpl。",
+      "verdict": "resolved",
+      "confidence": "high",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:709",
+          "detail": "$proto は Env.VIRTUAL_PROTO から取得され、`| default \"http\"` でデフォルトは http。よって VIRTUAL_PROTO を設定しなければ proxy_pass は http:// になる。報告者が望む挙動(内部向けは http)が標準の既定動作。"
+        },
+        {
+          "source": "nginx.tmpl:642 / :648",
+          "detail": "VIRTUAL_HOST_MULTIPORTS 経路でも proto のデフォルトは \"http\"。https は明示的にオプトインした場合のみ。$proto をハードコードで https にする箇所は存在しない。"
+        },
+        {
+          "source": "nginx.tmpl:329",
+          "detail": "`proxy_pass {{ trim $proto }}://{{ trim $upstream }}{{ trim $dest }};` 現行でも変数 $proto を使用するが、$proto の既定は http なので報告された『常に https になる』という前提は upstream では成立しない。"
+        },
+        {
+          "source": "docs/README.md:358-363 (SSL Upstream)",
+          "detail": "『バックエンドへ HTTPS で接続したい場合のみ VIRTUAL_PROTO=https を設定する』と明記。https はオプトインであることが文書化されている。"
+        },
+        {
+          "source": "docs/README.md:1494 (env-var table)",
+          "detail": "VIRTUAL_PROTO のデフォルト値が `http` と明示されている。"
+        },
+        {
+          "source": "test/test_virtual-proto/test_virtual-proto.py + .yml",
+          "detail": "VIRTUAL_PROTO=https を明示したケースのみ https バックエンドにつながることをテストで検証。既定(未設定)では http が使われる設計が裏付けられる。"
+        },
+        {
+          "source": "thread comment (gerrytsui, 2019-07-17)",
+          "detail": "スレッド内で既に『$proto は VIRTUAL_PROTO を設定したときだけ https。READMEの SSL Backends 参照』と正答が示されている。"
+        },
+        {
+          "source": "issue body link",
+          "detail": "報告者がリンクしたのは upstream ではなくサードパーティのフォーク(evertramos/...)。upstream の挙動とは別物で、報告者環境側で VIRTUAL_PROTO=https 相当が効いていたと考えられる。"
+        }
+      ],
+      "threadNote": "スレッドには gerrytsui による正答コメントが1件のみ存在し、そこで既に『$proto が https になるのは VIRTUAL_PROTO=https を設定した場合だけ。READMEのSSL Backends節を参照』と回答済み。報告者からの返信はなく、実質的に解決(誤解の解消)状態のまま放置されている。バグではなく設定/仕様の理解不足が原因。",
+      "draftComment": "Doing a bit of housekeeping on old issues here, as a third party.\n\nThis looks like a configuration/expectation question rather than a template bug. In current nginx-proxy (v1.11.2), the `$proto` used in `proxy_pass` is taken from the `VIRTUAL_PROTO` environment variable and defaults to `http` (see `nginx.tmpl` where `$proto` is resolved with `| default \"http\"`, and the docs: README \"SSL Upstream\" section and the environment-variable table listing `VIRTUAL_PROTO` default = `http`). So `proxy_pass http://...` is the default behavior unless `VIRTUAL_PROTO=https` is explicitly set on a backend; `https` is strictly opt-in and is covered by `test/test_virtual-proto`. As @gerrytsui already noted above, a value of `https` only appears when `VIRTUAL_PROTO=https` is configured. (Also worth noting the linked template in the original report is from a third-party fork rather than this repository.)\n\nIf the OP can no longer reproduce a forced-`https` proxy_pass without `VIRTUAL_PROTO=https` set, this might be a candidate the maintainers could consider closing, though I'll leave that judgment to them.",
+      "reasonNoComment": "",
+      "recommendPost": true
+    },
+    {
+      "number": 1365,
+      "title": "\"map_hash_max_size\" directive is duplicate",
+      "ask": "OPは長いURLのリダイレクト用に大きな `map`(redirects.map をinclude)を使いたいが、`could not build map_hash, you should increase map_hash_bucket_size: 64` というnginxエラーが出る。対処として `map_hash_max_size 262144; map_hash_bucket_size 262144;` を追加すると今度は `\"map_hash_max_size\" directive is duplicate` になり、map ファイル内・テンプレ内など色々な場所に置いても解決しなかった、という設定方法の質問。要するに「nginx-proxy 環境下で map_hash_bucket_size/map_hash_max_size を正しく設定する方法が分からない」。",
+      "verdict": "partially-resolved",
+      "confidence": "medium",
+      "evidence": [
+        {
+          "source": "nginx.tmpl:446-538",
+          "detail": "テンプレートは default.conf 内に複数の map ブロック($proxy_add_x_forwarded_for, $http_upgrade など)を生成する。nginx の仕様上 map_hash_max_size / map_hash_bucket_size はこれら map ブロックより前に宣言する必要があり、これがOPの『directive is duplicate』という誤解を招くエラーの根本原因。"
+        },
+        {
+          "source": "nginx.tmpl (grep map_hash 全履歴)",
+          "detail": "map_hash_max_size / map_hash_bucket_size は現行テンプレートにも、Sapling で追える nginx.tmpl の全履歴(315リビジョン)にも一度も登場しない。つまり nginx-proxy 側がこの directive を重複出力していたわけではなく、修正すべきコードバグは存在しない。出力されるハッシュ系 directive は server_names_hash_bucket_size 128 のみ。"
+        },
+        {
+          "source": "docs/README.md:934-992 (Proxy-wide custom config)",
+          "detail": "/etc/nginx/conf.d/*.conf に任意のプロキシ全体設定を置ける仕組みが明記。さらに NOTE(989-992行)で『ファイル名が適用順に影響』『conf.d はアルファベット順に読まれる』『nginx-proxy の設定は default.conf に置かれる』と明示されており、ユーザは 00-*.conf 等 default.conf より前にソートされる名前で map_hash_* を含むファイルを置けば、map ブロックより前に宣言できる。"
+        },
+        {
+          "source": "Dockerfile.debian:18 / app/Procfile:1",
+          "detail": "生成設定は /etc/nginx/conf.d/default.conf に出力され、stock nginx.conf の http ブロック内 include /etc/nginx/conf.d/*.conf; でアルファベット順に取り込まれる。toplevel.conf.d は http ブロックの外(stream 用)なので map_hash_* には使えず、conf.d の命名順が唯一の解。"
+        },
+        {
+          "source": "thread comment (mrybak-ng)",
+          "detail": "スレッド内で解決報告あり。『新しい値は map ブロックより前に宣言する必要がある(さもないと misleading な duplicate エラーになる)』という drupal の知見を適用したら『worked like a charm』と報告。回避策は既にスレッドで確立している。"
+        }
+      ],
+      "threadNote": "スレッドは完全に support 質問。コメント投稿者 mrybak-ng が自力で解決し、『map ブロックより前に map_hash_* を宣言すれば直る(duplicate エラーは misleading)』という回避策と『worked like a charm』の成功報告を残している。nginx-proxy 側の専用フィックス・env var・テストは無く、現行 docs の conf.d アルファベット順 NOTE がこの回避策を裏付けている。OPからの返信やクローズはない。",
+      "draftComment": "",
+      "reasonNoComment": "verdict が partially-resolved(resolved/environment-obsolete ではない)ため下書きは作成しない。実態は『nginx-proxy のコードバグ』ではなく nginx の map_hash 宣言順という設定上の制約に対する support 質問で、専用の修正・機能・テストが追加されたわけではない。回避策(default.conf より前にソートされる名前の conf.d ファイルに map_hash_* を置く)が現行 docs のアルファベット順 NOTE で裏付けられ、スレッド内でも解決報告済み、という意味での部分解決にとどまる。『現行版で明確に解決済み』と断言するのは過剰で、誤った resolved コメントは害になりうるため投稿は控える。漠然としたサポート質問を安易に resolved としない方針にも従う。",
+      "recommendPost": false
+    }
+  ]
+}
